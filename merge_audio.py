@@ -1,4 +1,5 @@
 import os
+import argparse
 from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError
 import logging
@@ -7,7 +8,29 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def merge_audio_files(cn_dir: str, en_dir: str, output_dir: str) -> None:
+def adjust_volume(audio: AudioSegment, target_dBFS: float) -> AudioSegment:
+    """
+    调整音频音量至目标分贝值
+    
+    参数:
+        audio (AudioSegment): 要调整的音频段
+        target_dBFS (float): 目标分贝值
+    
+    返回:
+        AudioSegment: 调整后的音频段
+    """
+    try:
+        # 计算需要调整的分贝差值
+        dBFS_diff = target_dBFS - audio.dBFS
+        # 应用音量调整
+        return audio.apply_gain(dBFS_diff)
+    except Exception as e:
+        logger.error(f"音量调整失败: {e}")
+        # 如果调整失败，返回原始音频
+        return audio
+
+
+def merge_audio_files(cn_dir: str, en_dir: str, output_dir: str, volume_sync: bool = False, target_dBFS: float = -20.0) -> None:
     """
     合并中英文音频文件
     
@@ -15,6 +38,8 @@ def merge_audio_files(cn_dir: str, en_dir: str, output_dir: str) -> None:
         cn_dir (str): 中文音频目录路径
         en_dir (str): 英文音频目录路径
         output_dir (str): 输出目录路径
+        volume_sync (bool): 是否同步音量
+        target_dBFS (float): 目标音量分贝值
     
     返回:
         None
@@ -45,6 +70,13 @@ def merge_audio_files(cn_dir: str, en_dir: str, output_dir: str) -> None:
                 cn_audio = AudioSegment.from_mp3(cn_path)
                 en_audio = AudioSegment.from_mp3(en_path)
                 
+                # 如果启用音量同步，调整两个音频的音量
+                if volume_sync:
+                    logger.info(f"同步音量至 {target_dBFS} dBFS")
+                    cn_audio = adjust_volume(cn_audio, target_dBFS)
+                    en_audio = adjust_volume(en_audio, target_dBFS)
+                    logger.info(f"调整后音量 - 中文: {cn_audio.dBFS:.2f} dBFS, 英文: {en_audio.dBFS:.2f} dBFS")
+                
                 # 合并音频（先中文后英文）
                 merged_audio = cn_audio + en_audio
                 
@@ -62,11 +94,20 @@ def merge_audio_files(cn_dir: str, en_dir: str, output_dir: str) -> None:
         logger.error(f"程序运行失败: {e}")
 
 if __name__ == "__main__":
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description="合并中英文音频文件")
+    parser.add_argument("--cn_dir", default="cn", help="中文音频目录路径")
+    parser.add_argument("--en_dir", default="en", help="英文音频目录路径")
+    parser.add_argument("--output_dir", default="output", help="输出目录路径")
+    parser.add_argument("--volume_sync", action="store_true", help="是否同步音量")
+    parser.add_argument("--target_dBFS", type=float, default=-20.0, help="目标音量分贝值")
+    args = parser.parse_args()
+    
     # 配置路径
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    CN_DIR = os.path.join(BASE_DIR, "cn")
-    EN_DIR = os.path.join(BASE_DIR, "en")
-    OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+    CN_DIR = os.path.join(BASE_DIR, args.cn_dir)
+    EN_DIR = os.path.join(BASE_DIR, args.en_dir)
+    OUTPUT_DIR = os.path.join(BASE_DIR, args.output_dir)
     
     # 执行合并
-    merge_audio_files(CN_DIR, EN_DIR, OUTPUT_DIR)
+    merge_audio_files(CN_DIR, EN_DIR, OUTPUT_DIR, args.volume_sync, args.target_dBFS)
